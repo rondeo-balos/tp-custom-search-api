@@ -149,17 +149,10 @@ class SearchScraper:
         language: Optional[str],
         safe: str
     ) -> str:
-        # Find search result containers - try multiple selectors
-        search_results = soup.select('div.g')
-        
-        if not search_results:
-            # Try alternative selectors
-            search_results = soup.select('div[data-sokoban-container]')
-        
-        if not search_results:
-            logger.warning(f"No results found. HTML preview: {html[:500]}")
-        
-        for idx, result in enumerate(search_results[:num_results]):
+        """Build Google search URL with parameters"""
+        base_url = "https://www.google.com/search"
+        params = [
+            f"q={quote_plus(query)}",
             f"num={num_results}"
         ]
         
@@ -186,8 +179,15 @@ class SearchScraper:
         
         items = []
         
-        # Find search result containers
+        # Find search result containers - try multiple selectors
         search_results = soup.select('div.g')
+        
+        if not search_results:
+            # Try alternative selectors
+            search_results = soup.select('div[data-sokoban-container]')
+        
+        if not search_results:
+            logger.warning(f"No results found. HTML preview: {html[:500]}")
         
         for idx, result in enumerate(search_results[:num_results]):
             try:
