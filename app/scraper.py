@@ -124,6 +124,11 @@ class SearchScraper:
             # Get page content
             content = await page.content()
             
+            # Debug: Log page title and first 1000 chars
+            title = await page.title()
+            logger.info(f"Page title: {title}")
+            logger.info(f"HTML preview (first 1000 chars): {content[:1000]}")
+            
             # Close context
             await context.close()
             
