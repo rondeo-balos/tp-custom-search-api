@@ -79,11 +79,13 @@ class SearchScraper:
             page = await context.new_page()
             
             # Navigate to search results
-            await page.goto(search_url, wait_until='networkidle', timeout=settings.timeout)
+            logger.info(f"Navigating to: {search_url}")
+            await page.goto(search_url, wait_until='domcontentloaded', timeout=settings.timeout)
             
             # Wait for results to load
             try:
-                await page.wait_for_selector('div#search', timeout=10000)
+                await page.wait_for_selector('div#search', timeout=15000)
+                logger.info("Search results loaded successfully")
             except:
                 logger.warning("Search results container not found, continuing anyway")
             

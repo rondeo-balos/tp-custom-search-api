@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     
     # Playwright Configuration
     headless: bool = True
-    timeout: int = 30000
+    timeout: int = 60000
     user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     
     # Cache Configuration
