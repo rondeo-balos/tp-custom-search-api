@@ -70,6 +70,8 @@ class SearchScraper:
         start_time = time.time()
         
         # Build Google search URL
+        search_url = self._build_google_url(query, num_results, start_index, language, safe)
+        
         try:
             # Create new page with context and anti-detection
             context = await self.browser.new_context(
@@ -80,6 +82,23 @@ class SearchScraper:
                 permissions=['geolocation'],
                 extra_http_headers={
                     'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1'
+                }
+            )
+            page = await context.new_page()
+            
+            # Add stealth scripts
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                window.chrome = {runtime: {}};
+            """)
+            
             # Navigate to search results
             logger.info(f"Navigating to: {search_url}")
             
@@ -101,25 +120,6 @@ class SearchScraper:
                     logger.info("Screenshot saved to /app/logs/failed_search.png")
                 except:
                     pass
-            await page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-                window.chrome = {runtime: {}};
-            """)eight': 1080}
-            )
-            page = await context.new_page()
-            
-            # Navigate to search results
-            logger.info(f"Navigating to: {search_url}")
-            await page.goto(search_url, wait_until='domcontentloaded', timeout=settings.timeout)
-            
-            # Wait for results to load
-            try:
-                await page.wait_for_selector('div#search', timeout=15000)
-                logger.info("Search results loaded successfully")
-            except:
-                logger.warning("Search results container not found, continuing anyway")
             
             # Get page content
             content = await page.content()
