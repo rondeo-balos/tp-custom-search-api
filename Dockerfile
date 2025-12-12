@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     ca-certificates \
     fonts-liberation \
+    fonts-unifont \
     libnss3 \
     libxss1 \
     libappindicator3-1 \
@@ -19,6 +20,21 @@ RUN apt-get update && apt-get install -y \
     libxcomposite1 \
     libxdamage1 \
     libxrandr2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libasound2 \
+    libatspi2.0-0 \
+    libdrm2 \
+    libxcb1 \
+    libxkbcommon0 \
+    libx11-6 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxrandr2 \
+    libpango-1.0-0 \
+    libcairo2 \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
@@ -28,8 +44,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browsers with dependencies
-RUN playwright install --with-deps chromium
+# Install Playwright browsers (without auto-deps since we installed them above)
+RUN playwright install chromium
 
 # Copy application code
 COPY . .
