@@ -27,7 +27,9 @@ class SearchScraper:
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled'
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-web-security',
+                    '--disable-features=IsolateOrigins,site-per-process'
                 ]
             )
             logger.info("Playwright browser initialized")
@@ -68,13 +70,43 @@ class SearchScraper:
         start_time = time.time()
         
         # Build Google search URL
-        search_url = self._build_google_url(query, num_results, start_index, language, safe)
-        
         try:
-            # Create new page with context
+            # Create new page with context and anti-detection
             context = await self.browser.new_context(
                 user_agent=settings.user_agent,
-                viewport={'width': 1920, 'height': 1080}
+                viewport={'width': 1920, 'height': 1080},
+                locale='en-US',
+                timezone_id='America/New_York',
+                permissions=['geolocation'],
+                extra_http_headers={
+                    'Accept-Language': 'en-US,en;q=0.9',
+            # Navigate to search results
+            logger.info(f"Navigating to: {search_url}")
+            
+            # Add random delay to appear more human
+            import random
+            await asyncio.sleep(random.uniform(0.5, 1.5))
+            
+            await page.goto(search_url, wait_until='domcontentloaded', timeout=settings.timeout)
+            
+            # Wait for results to load - try multiple selectors
+            try:
+                await page.wait_for_selector('div#search, div#rso, div.g', timeout=15000)
+                logger.info("Search results loaded successfully")
+            except:
+                logger.warning("Search results container not found")
+                # Take screenshot for debugging
+                try:
+                    await page.screenshot(path='/app/logs/failed_search.png')
+                    logger.info("Screenshot saved to /app/logs/failed_search.png")
+                except:
+                    pass
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                window.chrome = {runtime: {}};
+            """)eight': 1080}
             )
             page = await context.new_page()
             
@@ -117,10 +149,17 @@ class SearchScraper:
         language: Optional[str],
         safe: str
     ) -> str:
-        """Build Google search URL with parameters"""
-        base_url = "https://www.google.com/search"
-        params = [
-            f"q={quote_plus(query)}",
+        # Find search result containers - try multiple selectors
+        search_results = soup.select('div.g')
+        
+        if not search_results:
+            # Try alternative selectors
+            search_results = soup.select('div[data-sokoban-container]')
+        
+        if not search_results:
+            logger.warning(f"No results found. HTML preview: {html[:500]}")
+        
+        for idx, result in enumerate(search_results[:num_results]):
             f"num={num_results}"
         ]
         
