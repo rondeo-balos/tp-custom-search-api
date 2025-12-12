@@ -5,7 +5,7 @@ from typing import Optional
 class Settings(BaseSettings):
     # API Configuration
     api_host: str = "0.0.0.0"
-    api_port: int = 8000
+    api_port: int = 8765
     api_key: str = "your-secret-api-key-here"
     enable_auth: bool = True
     

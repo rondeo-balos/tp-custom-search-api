@@ -5,10 +5,10 @@ services:
     build: .
     container_name: tp-custom-search-api
     ports:
-      - "8000:8000"
+      - "8765:8765"
     environment:
       - API_HOST=0.0.0.0
-      - API_PORT=8000
+      - API_PORT=8765
       - HEADLESS=true
     env_file:
       - .env

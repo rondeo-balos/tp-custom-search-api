@@ -6,7 +6,7 @@ import requests
 import json
 
 # API Configuration
-API_URL = "http://localhost:8000/customsearch/v1"
+API_URL = "http://localhost:8765/customsearch/v1"
 API_KEY = "your-secret-api-key-here"
 
 

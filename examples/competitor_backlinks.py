@@ -8,7 +8,7 @@ from typing import List, Dict
 from urllib.parse import urlparse
 
 
-API_URL = "http://localhost:8000/customsearch/v1"
+API_URL = "http://localhost:8765/customsearch/v1"
 API_KEY = "your-secret-api-key-here"
 
 
