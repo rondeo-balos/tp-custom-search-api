@@ -1,0 +1,283 @@
+import asyncio
+import time
+import logging
+from typing import List, Dict, Any, Optional
+from urllib.parse import quote_plus, urlparse
+from playwright.async_api import async_playwright, Browser, Page
+from bs4 import BeautifulSoup
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class SearchScraper:
+    """Playwright-based search scraper"""
+    
+    def __init__(self):
+        self.browser: Optional[Browser] = None
+        self.playwright = None
+        
+    async def initialize(self):
+        """Initialize Playwright browser"""
+        if self.browser is None:
+            self.playwright = await async_playwright().start()
+            self.browser = await self.playwright.chromium.launch(
+                headless=settings.headless,
+                args=[
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-blink-features=AutomationControlled'
+                ]
+            )
+            logger.info("Playwright browser initialized")
+    
+    async def close(self):
+        """Close browser and cleanup"""
+        if self.browser:
+            await self.browser.close()
+            self.browser = None
+        if self.playwright:
+            await self.playwright.stop()
+            self.playwright = None
+            logger.info("Playwright browser closed")
+    
+    async def search_google(
+        self,
+        query: str,
+        num_results: int = 10,
+        start_index: int = 1,
+        language: Optional[str] = None,
+        safe: str = "off"
+    ) -> Dict[str, Any]:
+        """
+        Perform Google search and return results in Google Custom Search API format
+        
+        Args:
+            query: Search query string
+            num_results: Number of results to return (1-10)
+            start_index: Starting position (1-based)
+            language: Language restriction (e.g., 'lang_en')
+            safe: Safe search setting ('off', 'medium', 'high')
+        
+        Returns:
+            Dict with search results matching Google's API format
+        """
+        await self.initialize()
+        
+        start_time = time.time()
+        
+        # Build Google search URL
+        search_url = self._build_google_url(query, num_results, start_index, language, safe)
+        
+        try:
+            # Create new page with context
+            context = await self.browser.new_context(
+                user_agent=settings.user_agent,
+                viewport={'width': 1920, 'height': 1080}
+            )
+            page = await context.new_page()
+            
+            # Navigate to search results
+            await page.goto(search_url, wait_until='networkidle', timeout=settings.timeout)
+            
+            # Wait for results to load
+            try:
+                await page.wait_for_selector('div#search', timeout=10000)
+            except:
+                logger.warning("Search results container not found, continuing anyway")
+            
+            # Get page content
+            content = await page.content()
+            
+            # Close context
+            await context.close()
+            
+            # Parse results
+            results = self._parse_google_results(content, query, num_results, start_index)
+            
+            # Add timing information
+            search_time = time.time() - start_time
+            results['searchInformation']['searchTime'] = round(search_time, 3)
+            results['searchInformation']['formattedSearchTime'] = f"{search_time:.2f}"
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error performing search: {str(e)}")
+            raise
+    
+    def _build_google_url(
+        self,
+        query: str,
+        num_results: int,
+        start_index: int,
+        language: Optional[str],
+        safe: str
+    ) -> str:
+        """Build Google search URL with parameters"""
+        base_url = "https://www.google.com/search"
+        params = [
+            f"q={quote_plus(query)}",
+            f"num={num_results}"
+        ]
+        
+        if start_index > 1:
+            params.append(f"start={start_index - 1}")
+        
+        if language:
+            params.append(f"lr={language}")
+        
+        if safe != "off":
+            params.append(f"safe={'active' if safe in ['medium', 'high'] else 'off'}")
+        
+        return f"{base_url}?{'&'.join(params)}"
+    
+    def _parse_google_results(
+        self,
+        html: str,
+        query: str,
+        num_results: int,
+        start_index: int
+    ) -> Dict[str, Any]:
+        """Parse Google search results HTML"""
+        soup = BeautifulSoup(html, 'lxml')
+        
+        items = []
+        
+        # Find search result containers
+        search_results = soup.select('div.g')
+        
+        for idx, result in enumerate(search_results[:num_results]):
+            try:
+                item = self._parse_search_item(result, idx + start_index)
+                if item:
+                    items.append(item)
+            except Exception as e:
+                logger.warning(f"Failed to parse search result: {str(e)}")
+                continue
+        
+        # Extract total results estimate
+        total_results = self._extract_total_results(soup)
+        
+        # Build response matching Google's format
+        response = {
+            "kind": "customsearch#search",
+            "url": {
+                "type": "application/json",
+                "template": f"https://www.googleapis.com/customsearch/v1?q={{searchTerms}}"
+            },
+            "queries": {
+                "request": [{
+                    "title": f"Custom Search - {query}",
+                    "totalResults": str(total_results),
+                    "searchTerms": query,
+                    "count": num_results,
+                    "startIndex": start_index,
+                    "inputEncoding": "utf8",
+                    "outputEncoding": "utf8",
+                    "safe": "off"
+                }]
+            },
+            "searchInformation": {
+                "searchTime": 0.0,
+                "formattedSearchTime": "0.00",
+                "totalResults": str(total_results),
+                "formattedTotalResults": f"{total_results:,}"
+            },
+            "items": items
+        }
+        
+        # Add next page query if more results available
+        if len(items) == num_results and start_index + num_results <= settings.max_start_index:
+            response["queries"]["nextPage"] = [{
+                "title": f"Custom Search - {query}",
+                "totalResults": str(total_results),
+                "searchTerms": query,
+                "count": num_results,
+                "startIndex": start_index + num_results,
+                "inputEncoding": "utf8",
+                "outputEncoding": "utf8",
+                "safe": "off"
+            }]
+        
+        # Add previous page query if not on first page
+        if start_index > 1:
+            response["queries"]["previousPage"] = [{
+                "title": f"Custom Search - {query}",
+                "totalResults": str(total_results),
+                "searchTerms": query,
+                "count": num_results,
+                "startIndex": max(1, start_index - num_results),
+                "inputEncoding": "utf8",
+                "outputEncoding": "utf8",
+                "safe": "off"
+            }]
+        
+        return response
+    
+    def _parse_search_item(self, result_elem, position: int) -> Optional[Dict[str, Any]]:
+        """Parse individual search result"""
+        # Extract link
+        link_elem = result_elem.select_one('a')
+        if not link_elem or not link_elem.get('href'):
+            return None
+        
+        url = link_elem.get('href')
+        if not url.startswith('http'):
+            return None
+        
+        # Extract title
+        title_elem = result_elem.select_one('h3')
+        title = title_elem.get_text(strip=True) if title_elem else "No title"
+        
+        # Extract snippet
+        snippet_elem = result_elem.select_one('div[data-sncf="1"], div.VwiC3b, span.aCOpRe')
+        snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
+        
+        # Parse URL components
+        parsed_url = urlparse(url)
+        display_link = parsed_url.netloc
+        formatted_url = f"{parsed_url.scheme}://{display_link}{parsed_url.path}"
+        
+        return {
+            "kind": "customsearch#result",
+            "title": title,
+            "htmlTitle": self._html_escape(title),
+            "link": url,
+            "displayLink": display_link,
+            "snippet": snippet,
+            "htmlSnippet": self._html_escape(snippet),
+            "formattedUrl": formatted_url,
+            "htmlFormattedUrl": self._html_escape(formatted_url),
+            "pagemap": {}
+        }
+    
+    def _extract_total_results(self, soup: BeautifulSoup) -> int:
+        """Extract total results count from Google results page"""
+        # Try to find results stats
+        stats_elem = soup.select_one('div#result-stats')
+        if stats_elem:
+            text = stats_elem.get_text()
+            # Extract number from text like "About 1,234,567 results"
+            import re
+            match = re.search(r'About\s+([\d,]+)\s+results', text)
+            if match:
+                return int(match.group(1).replace(',', ''))
+        
+        # Default estimate
+        return 10000
+    
+    @staticmethod
+    def _html_escape(text: str) -> str:
+        """Basic HTML escaping"""
+        return (text
+                .replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('"', '&quot;')
+                .replace("'", '&#39;'))
+
+
+# Global scraper instance
+scraper = SearchScraper()
