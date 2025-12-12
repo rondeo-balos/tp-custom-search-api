@@ -108,9 +108,9 @@ class SearchScraper:
             
             await page.goto(search_url, wait_until='domcontentloaded', timeout=settings.timeout)
             
-            # Wait for results to load - try multiple selectors
+            # Wait for results to load - DuckDuckGo selector
             try:
-                await page.wait_for_selector('div#search, div#rso, div.g', timeout=15000)
+                await page.wait_for_selector('div.result, div.results', timeout=15000)
                 logger.info("Search results loaded successfully")
             except:
                 logger.warning("Search results container not found")
@@ -154,21 +154,15 @@ class SearchScraper:
         language: Optional[str],
         safe: str
     ) -> str:
-        """Build Google search URL with parameters"""
-        base_url = "https://www.google.com/search"
+        """Build DuckDuckGo HTML search URL with parameters"""
+        # Use DuckDuckGo HTML version (easier to scrape, no JS required)
+        base_url = "https://html.duckduckgo.com/html/"
         params = [
-            f"q={quote_plus(query)}",
-            f"num={num_results}"
+            f"q={quote_plus(query)}"
         ]
         
-        if start_index > 1:
-            params.append(f"start={start_index - 1}")
-        
-        if language:
-            params.append(f"lr={language}")
-        
-        if safe != "off":
-            params.append(f"safe={'active' if safe in ['medium', 'high'] else 'off'}")
+        # DuckDuckGo HTML doesn't support pagination well, but we can work with it
+        # We'll fetch more and slice client-side
         
         return f"{base_url}?{'&'.join(params)}"
     
@@ -188,19 +182,20 @@ class SearchScraper:
         search_results = soup.select('div.g')
         
         if not search_results:
-            # Try alternative selectors
-            search_results = soup.select('div[data-sokoban-container]')
+        items = []
+        
+        # Find search result containers - DuckDuckGo HTML selectors
+        search_results = soup.select('div.result')
         
         if not search_results:
             logger.warning(f"No results found. HTML preview: {html[:500]}")
         
-        for idx, result in enumerate(search_results[:num_results]):
-            try:
-                item = self._parse_search_item(result, idx + start_index)
-                if item:
-                    items.append(item)
-            except Exception as e:
-                logger.warning(f"Failed to parse search result: {str(e)}")
+        # Handle pagination (start_index)
+        start_pos = start_index - 1
+        end_pos = start_pos + num_results
+        paginated_results = search_results[start_pos:end_pos]
+        
+        for idx, result in enumerate(paginated_results):r(e)}")
                 continue
         
         # Extract total results estimate
@@ -261,11 +256,10 @@ class SearchScraper:
             }]
         
         return response
-    
     def _parse_search_item(self, result_elem, position: int) -> Optional[Dict[str, Any]]:
-        """Parse individual search result"""
-        # Extract link
-        link_elem = result_elem.select_one('a')
+        """Parse individual search result (DuckDuckGo format)"""
+        # Extract link from DuckDuckGo result
+        link_elem = result_elem.select_one('a.result__a')
         if not link_elem or not link_elem.get('href'):
             return None
         
@@ -274,11 +268,12 @@ class SearchScraper:
             return None
         
         # Extract title
-        title_elem = result_elem.select_one('h3')
+        title_elem = result_elem.select_one('a.result__a')
         title = title_elem.get_text(strip=True) if title_elem else "No title"
         
         # Extract snippet
-        snippet_elem = result_elem.select_one('div[data-sncf="1"], div.VwiC3b, span.aCOpRe')
+        snippet_elem = result_elem.select_one('a.result__snippet')
+        snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""3b, span.aCOpRe')
         snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
         
         # Parse URL components
