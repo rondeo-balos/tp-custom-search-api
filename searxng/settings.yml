@@ -33,12 +33,13 @@ enabled_plugins:
   - 'Tracker URL remover'
 
 engines:
-  - name: bing
-    disabled: false
-    weight: 1
   - name: google
     disabled: false
-    weight: 1
-  - name: duckduckgo
+    weight: 2.0
+  - name: bing
     disabled: false
-    weight: 0.5
+    weight: 1.0
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true
