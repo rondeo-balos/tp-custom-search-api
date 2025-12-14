@@ -64,7 +64,7 @@ class SearchScraper:
             'q': query,
             'format': 'json',
             'pageno': page_num,
-            'language': 'en-US',
+            'language': 'en',
             'safesearch': 0 if safe == "off" else 1,
             'engines': 'google,bing'  # Force specific engines
         }

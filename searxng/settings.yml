@@ -13,8 +13,6 @@ search:
   formats:
     - html
     - json
-  languages:
-    - en-US
 
 server:
   secret_key: "changeme_secret_key_for_searxng"
@@ -38,17 +36,14 @@ engines:
   - name: google
     disabled: false
     weight: 3.0
-    language: en-US
     shortcut: g
   - name: bing
     disabled: false
     weight: 1.0
-    language: en-US
     shortcut: b
   - name: qwant
     disabled: false
     weight: 0.5
-    language: en-US
   - name: duckduckgo
     disabled: true
   - name: brave
