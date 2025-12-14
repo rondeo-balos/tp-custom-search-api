@@ -1,6 +1,8 @@
 import asyncio
 import time
 import logging
+import os
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from urllib.parse import quote_plus, urlparse
 from playwright.async_api import async_playwright, Browser, Page
@@ -88,6 +90,23 @@ class SearchScraper:
                 logger.warning("Search results container not found")
             
             content = await page.content()
+            
+            # Save HTML for debugging
+            try:
+                os.makedirs('/app/logs', exist_ok=True)
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                debug_file = f'/app/logs/ddg_search_{timestamp}.html'
+                with open(debug_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                logger.info(f"Debug HTML saved to {debug_file}")
+                
+                # Also save a screenshot
+                screenshot_file = f'/app/logs/ddg_search_{timestamp}.png'
+                await page.screenshot(path=screenshot_file, full_page=True)
+                logger.info(f"Debug screenshot saved to {screenshot_file}")
+            except Exception as e:
+                logger.warning(f"Could not save debug files: {e}")
+            
             await context.close()
             
             # Parse results
@@ -115,11 +134,26 @@ class SearchScraper:
         soup = BeautifulSoup(html, 'lxml')
         items = []
         
-        # Find DuckDuckGo results
-        search_results = soup.select('div.result')
+        # Try multiple selectors for DuckDuckGo results
+        search_results = []
+        selectors = [
+            'div.result',
+            'div.results_links',
+            'div.web-result',
+            'div[class*="result"]',
+            '.result',
+        ]
+        
+        for selector in selectors:
+            search_results = soup.select(selector)
+            if search_results:
+                logger.info(f"Found {len(search_results)} results using selector: {selector}")
+                break
         
         if not search_results:
-            logger.warning("No results found")
+            logger.warning(f"No results found with any selector. HTML length: {len(html)}")
+            # Log first 1000 chars of HTML for debugging
+            logger.debug(f"HTML preview: {html[:1000]}")
         
         # Handle pagination
         start_pos = start_index - 1
