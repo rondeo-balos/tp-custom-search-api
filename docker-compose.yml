@@ -31,5 +31,22 @@ services:
       - redis_data:/data
     restart: unless-stopped
 
+  searxng:
+    image: searxng/searxng:latest
+    container_name: tp-search-searxng
+    ports:
+      - "8766:8080"
+    volumes:
+      - ./searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8766/
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
 volumes:
   redis_data:

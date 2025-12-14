@@ -2,47 +2,34 @@ import asyncio
 import time
 import logging
 import os
+import httpx
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from urllib.parse import quote_plus, urlparse
-from playwright.async_api import async_playwright, Browser, Page
-from bs4 import BeautifulSoup
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class SearchScraper:
-    """Playwright-based search scraper using DuckDuckGo"""
+    """Search scraper using SearXNG meta-search engine"""
     
     def __init__(self):
-        self.browser: Optional[Browser] = None
-        self.playwright = None
+        self.searxng_url = os.getenv("SEARXNG_URL", "http://searxng:8080")
+        self.client = httpx.AsyncClient(timeout=60.0)
         
     async def initialize(self):
-        """Initialize Playwright browser"""
-        if self.browser is None:
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(
-                headless=settings.headless,
-                args=[
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled'
-                ]
-            )
-            logger.info("Playwright browser initialized")
+        """Initialize HTTP client"""
+        if self.client is None:
+            self.client = httpx.AsyncClient(timeout=60.0)
+        logger.info(f"Search scraper initialized with SearXNG at {self.searxng_url}")
     
     async def close(self):
-        """Close browser and cleanup"""
-        if self.browser:
-            await self.browser.close()
-            self.browser = None
-        if self.playwright:
-            await self.playwright.stop()
-            self.playwright = None
-            logger.info("Playwright browser closed")
+        """Close HTTP client"""
+        if self.client:
+            await self.client.aclose()
+            self.client = None
+            logger.info("Search scraper closed")
     
     async def search_google(
         self,
@@ -53,13 +40,13 @@ class SearchScraper:
         safe: str = "off"
     ) -> Dict[str, Any]:
         """
-        Perform search using DuckDuckGo and return results in Google Custom Search API format
+        Perform search using SearXNG and return results in Google Custom Search API format
         
         Args:
             query: Search query string
             num_results: Number of results to return (1-10)
             start_index: Starting position (1-based)
-            language: Language restriction (ignored for DDG)
+            language: Language restriction
             safe: Safe search setting
         
         Returns:
@@ -69,53 +56,55 @@ class SearchScraper:
         
         start_time = time.time()
         
-        # Build DuckDuckGo search URL
-        search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+        # Calculate page number from start_index
+        page_num = ((start_index - 1) // num_results) + 1
+        
+        # Build SearXNG API request
+        params = {
+            'q': query,
+            'format': 'json',
+            'pageno': page_num,
+            'language': language or 'en',
+            'safesearch': 0 if safe == "off" else 1
+        }
         
         try:
-            context = await self.browser.new_context(
-                user_agent=settings.user_agent,
-                viewport={'width': 1920, 'height': 1080}
+            logger.info(f"Querying SearXNG: {self.searxng_url}/search with query={query}")
+            
+            response = await self.client.get(
+                f"{self.searxng_url}/search",
+                params=params
             )
-            page = await context.new_page()
+            response.raise_for_status()
             
-            logger.info(f"Navigating to: {search_url}")
-            await page.goto(search_url, wait_until='domcontentloaded', timeout=settings.timeout)
+            searxng_results = response.json()
             
-            # Wait for results
-            try:
-                await page.wait_for_selector('div.result', timeout=15000)
-                logger.info("Search results loaded successfully")
-            except:
-                logger.warning("Search results container not found")
-            
-            content = await page.content()
-            
-            # Save HTML for debugging
+            # Save debug info
             try:
                 os.makedirs('/app/logs', exist_ok=True)
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                debug_file = f'/app/logs/ddg_search_{timestamp}.html'
+                debug_file = f'/app/logs/searxng_results_{timestamp}.json'
                 with open(debug_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                logger.info(f"Debug HTML saved to {debug_file}")
-                
-                # Also save a screenshot
-                screenshot_file = f'/app/logs/ddg_search_{timestamp}.png'
-                await page.screenshot(path=screenshot_file, full_page=True)
-                logger.info(f"Debug screenshot saved to {screenshot_file}")
+                    import json
+                    json.dump(searxng_results, f, indent=2)
+                logger.info(f"Debug JSON saved to {debug_file}")
             except Exception as e:
                 logger.warning(f"Could not save debug files: {e}")
             
-            await context.close()
-            
-            # Parse results
-            results = self._parse_results(content, query, num_results, start_index)
+            # Convert SearXNG results to Google Custom Search API format
+            results = self._convert_searxng_results(
+                searxng_results, 
+                query, 
+                num_results, 
+                start_index
+            )
             
             # Add timing
             search_time = time.time() - start_time
             results['searchInformation']['searchTime'] = round(search_time, 3)
             results['searchInformation']['formattedSearchTime'] = f"{search_time:.2f}"
+            
+            logger.info(f"Search completed: {len(results.get('items', []))} results in {search_time:.2f}s")
             
             return results
             
@@ -123,54 +112,38 @@ class SearchScraper:
             logger.error(f"Error performing search: {str(e)}")
             raise
     
-    def _parse_results(
+    def _convert_searxng_results(
         self,
-        html: str,
+        searxng_data: Dict[str, Any],
         query: str,
         num_results: int,
         start_index: int
     ) -> Dict[str, Any]:
-        """Parse DuckDuckGo search results HTML"""
-        soup = BeautifulSoup(html, 'lxml')
+        """Convert SearXNG JSON results to Google Custom Search API format"""
         items = []
         
-        # Try multiple selectors for DuckDuckGo results
-        search_results = []
-        selectors = [
-            'div.result',
-            'div.results_links',
-            'div.web-result',
-            'div[class*="result"]',
-            '.result',
-        ]
+        # Get results from SearXNG response
+        searxng_results = searxng_data.get('results', [])
         
-        for selector in selectors:
-            search_results = soup.select(selector)
-            if search_results:
-                logger.info(f"Found {len(search_results)} results using selector: {selector}")
-                break
+        if not searxng_results:
+            logger.warning("No results found in SearXNG response")
+        else:
+            logger.info(f"Found {len(searxng_results)} results from SearXNG")
         
-        if not search_results:
-            logger.warning(f"No results found with any selector. HTML length: {len(html)}")
-            # Log first 1000 chars of HTML for debugging
-            logger.debug(f"HTML preview: {html[:1000]}")
+        # Limit to requested number of results
+        limited_results = searxng_results[:num_results]
         
-        # Handle pagination
-        start_pos = start_index - 1
-        end_pos = start_pos + num_results
-        paginated_results = search_results[start_pos:end_pos]
-        
-        for idx, result in enumerate(paginated_results):
+        for idx, result in enumerate(limited_results):
             try:
-                item = self._parse_item(result, start_index + idx)
+                item = self._convert_searxng_item(result, start_index + idx)
                 if item:
                     items.append(item)
             except Exception as e:
-                logger.warning(f"Failed to parse result: {str(e)}")
+                logger.warning(f"Failed to convert result: {str(e)}")
                 continue
         
-        # Build response
-        total_results = len(search_results) * 100  # Estimate
+        # Get total results count (SearXNG doesn't always provide this)
+        total_results = searxng_data.get('number_of_results', len(searxng_results) * 100)
         
         response = {
             "kind": "customsearch#search",
@@ -183,7 +156,7 @@ class SearchScraper:
                     "title": f"Custom Search - {query}",
                     "totalResults": str(total_results),
                     "searchTerms": query,
-                    "count": num_results,
+                    "count": len(items),
                     "startIndex": start_index,
                     "inputEncoding": "utf8",
                     "outputEncoding": "utf8",
@@ -201,23 +174,14 @@ class SearchScraper:
         
         return response
     
-    def _parse_item(self, result_elem, position: int) -> Optional[Dict[str, Any]]:
-        """Parse individual DuckDuckGo result"""
-        # Extract link
-        link_elem = result_elem.select_one('a.result__a')
-        if not link_elem or not link_elem.get('href'):
+    def _convert_searxng_item(self, result: Dict[str, Any], position: int) -> Optional[Dict[str, Any]]:
+        """Convert individual SearXNG result to Google Custom Search API format"""
+        url = result.get('url')
+        if not url:
             return None
         
-        url = link_elem.get('href')
-        if not url.startswith('http'):
-            return None
-        
-        # Extract title
-        title = link_elem.get_text(strip=True) if link_elem else "No title"
-        
-        # Extract snippet
-        snippet_elem = result_elem.select_one('a.result__snippet')
-        snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
+        title = result.get('title', 'No title')
+        content = result.get('content', '')
         
         # Parse URL
         parsed_url = urlparse(url)
@@ -230,8 +194,8 @@ class SearchScraper:
             "htmlTitle": title,
             "link": url,
             "displayLink": display_link,
-            "snippet": snippet,
-            "htmlSnippet": snippet,
+            "snippet": content,
+            "htmlSnippet": content,
             "formattedUrl": formatted_url,
             "htmlFormattedUrl": formatted_url,
             "pagemap": {}

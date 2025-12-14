@@ -1,0 +1,44 @@
+use_default_settings: true
+
+general:
+  instance_name: "TP Search"
+  privacypolicy_url: false
+  contact_url: false
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: ""
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "changeme_secret_key_for_searxng"
+  limiter: false
+  image_proxy: true
+  port: 8080
+  bind_address: "0.0.0.0"
+
+ui:
+  static_use_hash: true
+  default_theme: simple
+  theme_args:
+    simple_style: auto
+
+enabled_plugins:
+  - 'Hash plugin'
+  - 'Self Information'
+  - 'Tracker URL remover'
+
+engines:
+  - name: bing
+    disabled: false
+    weight: 1
+  - name: google
+    disabled: false
+    weight: 1
+  - name: duckduckgo
+    disabled: false
+    weight: 0.5
