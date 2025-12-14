@@ -199,6 +199,29 @@ async def clear_cache(api_key: str = Depends(verify_api_key)):
     return {"message": "Cache cleared successfully"}
 
 
+@app.get("/debug/searxng")
+async def debug_searxng(
+    q: str = QueryParam(..., description="Search query"),
+    api_key: str = Depends(verify_api_key)
+):
+    """Debug endpoint to see raw SearXNG response"""
+    import httpx
+    import os
+    
+    searxng_url = os.getenv("SEARXNG_URL", "http://searxng:8080")
+    
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.get(
+                f"{searxng_url}/search",
+                params={'q': q, 'format': 'json', 'language': 'en'}
+            )
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
