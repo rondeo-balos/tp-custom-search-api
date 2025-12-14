@@ -1,6 +1,15 @@
 # tp-custom-search-api
 Searches over a website or collection of websites
 
+## TODO (Dec 14, 2025)
+- [ ] Fix DuckDuckGo scraper returning empty items array
+  - Issue: API returns `"totalResults": "0"` and `"items": []` for valid queries
+  - Example: "Personal Injury Accident Lawyers near Carrollton" returns no results
+  - Possible causes: 
+    - Selectors not matching DuckDuckGo HTML structure
+    - Anti-bot detection blocking requests
+    - Need to verify DuckDuckGo HTML parsing logic
+
 ✨ Key Features
 1. 100% Google Custom Search API Compatible
   - Same endpoint structure: /customsearch/v1
